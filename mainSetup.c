@@ -139,6 +139,11 @@ void do_command(int background, char *args[], char *envPath){
         }
         exit(0);
     }
-    waitpid(pid, NULL, 0);
+
+    if (background == 1){
+        printf("[1] : %d \n", pid);
+    }else{
+        waitpid(pid,NULL,0);
+    }
 }
 
