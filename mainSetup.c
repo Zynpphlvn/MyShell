@@ -133,8 +133,6 @@ void do_command(int background, char *args[], char *envPath){
         fprintf(stderr, "Error while forking!");
     }
 
-    printf("Hi bitch !  %s \n", args[0]);
-
     if(pid == 0){
 
         while((returnValue = execl(temp, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12], NULL)) != 0 && cnt < 10){
@@ -151,6 +149,6 @@ void do_command(int background, char *args[], char *envPath){
         exit(0);
     }
 
-    wait(NULL);
+    waitpid(pid, NULL, 0);
 }
 
