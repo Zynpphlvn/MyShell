@@ -7,7 +7,7 @@
 #include<sys/types.h>
 
 #define MAX_LINE 80 /* 80 chars per line, per command, should be enough. */
- 
+
 /* The setup function below will not return any value, but it will just: read
 in the next command line; separate it into distinct arguments (using blanks as
 delimiters), and set the args array entries to point to the beginning of what
@@ -26,10 +26,6 @@ void setup(char inputBuffer[], char *args[],int *background)
         
     /* read what the user enters on the command line */
     length = read(STDIN_FILENO,inputBuffer,MAX_LINE);
-    /*if(args[0] == NULL) *//*if user enter without anything*//*
-    {
-        continue;
-    }*/
 
     /* 0 is the system predefined file descriptor for stdin (standard input),
        which is the user's screen in this case. inputBuffer by itself is the
@@ -88,7 +84,7 @@ void setup(char inputBuffer[], char *args[],int *background)
 		printf("args %d = %s\n",i,args[i]);
 } /* end of setup routine */
  
-int main(void)
+int main(int argc, char *agrv[])
 {
     char *envPath = getenv("PATH");
     char inputBuffer[MAX_LINE]; /*buffer to hold command entered */
@@ -98,12 +94,13 @@ int main(void)
         background = 0;
         printf("myshell: ");
         /*setup() calls exit() when Control-D is entered */
+        fflush(NULL);
         setup(inputBuffer, args, &background);
+
         if(args[0] == NULL) /*if user enter without anything*/
         {
             continue;
         }
-        printf("I'm in while loop \n");
         do_command(background, args, envPath);
 
         /** the steps are:
@@ -116,39 +113,32 @@ int main(void)
 
 
 void do_command(int background, char *args[], char *envPath){
-    //printf("GIRDIM\n");
-    //printf("%s \n", envPath);
-    char *token = strtok(envPath, ":");
-    char temp[80] = "";
-    strcpy(temp, token);
-    strcat(temp, "/");
-    strcat(temp, args[0]);
-    //printf("%s \n", temp);
-    int returnValue, cnt=0;
 
-    printf("fork is coming \n");
+    int cnt=0;
+
     pid_t pid = fork();
 
-    if(pid<0){
+    if(pid<0) {
         fprintf(stderr, "Error while forking!");
     }
 
     if(pid == 0){
 
-        while((returnValue = execl(temp, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12], NULL)) != 0 && cnt < 10){
-            //printf("Path: %s   with return value: %d\n", temp, returnValue);
+        char *token = strtok(envPath, ":");
+        char temp[80] = "";
+        strcpy(temp, token);
+        strcat(temp, "/");
+        strcat(temp, args[0]);
+        while(execl(temp, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12], NULL) != 0 && cnt < 10){
 
             token = strtok(NULL, ":");
             strcpy(temp ,token);
             strcat(temp, "/");
             strcat(temp, args[0]);
-
             cnt++;
         }
-
         exit(0);
     }
-
     waitpid(pid, NULL, 0);
 }
 
