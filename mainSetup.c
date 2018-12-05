@@ -6,6 +6,7 @@
 #include<sys/wait.h>
 #include<sys/types.h>
 
+
 #define MAX_LINE 80 /* 80 chars per line, per command, should be enough. */
 
 /* The setup function below will not return any value, but it will just: read
@@ -13,7 +14,8 @@ in the next command line; separate it into distinct arguments (using blanks as
 delimiters), and set the args array entries to point to the beginning of what
 will become null-terminated, C-style strings. */
 
-void do_command(int background, char *args[], char *envPath);
+void run_command(int background, char *args[], char *envPath);
+void execute(int background, char *args[], char *envPath);
 
 void setup(char inputBuffer[], char *args[],int *background)
 {
@@ -46,7 +48,7 @@ void setup(char inputBuffer[], char *args[],int *background)
 	exit(-1);           /* terminate with error code of -1 */
     }
 
-	printf(">>%s<<",inputBuffer);
+	//printf(">>%s<<",inputBuffer);
     for (i=0;i<length;i++){ /* examine every character in the inputBuffer */
 
         switch (inputBuffer[i]){
@@ -80,8 +82,8 @@ void setup(char inputBuffer[], char *args[],int *background)
      }    /* end of for */
      args[ct] = NULL; /* just in case the input line was > 80 */
 
-	for (i = 0; i <= ct; i++)
-		printf("args %d = %s\n",i,args[i]);
+//	for (i = 0; i <= ct; i++)
+//		printf("args %d = %s\n",i,args[i]);
 } /* end of setup routine */
  
 int main(int argc, char *agrv[])
@@ -101,7 +103,7 @@ int main(int argc, char *agrv[])
         {
             continue;
         }
-        do_command(background, args, envPath);
+        run_command(background, args, envPath);
 
         /** the steps are:
         (1) fork a child process using fork()
@@ -111,15 +113,11 @@ int main(int argc, char *agrv[])
     }
 }
 
-
-void do_command(int background, char *args[], char *envPath){
-
-    int cnt=0;
-
+void execute(int background, char *args[], char *envPath){
     pid_t pid = fork();
 
     if(pid<0) {
-        fprintf(stderr, "Error while forking!");
+        fprintf(stderr, "Error while creating child process!");
     }
 
     if(pid == 0){
@@ -129,21 +127,37 @@ void do_command(int background, char *args[], char *envPath){
         strcpy(temp, token);
         strcat(temp, "/");
         strcat(temp, args[0]);
-        while(execl(temp, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12], NULL) != 0 && cnt < 10){
+        while(execl(temp, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12], NULL) != 0){
 
             token = strtok(NULL, ":");
             strcpy(temp ,token);
             strcat(temp, "/");
             strcat(temp, args[0]);
-            cnt++;
         }
-        exit(0);
     }
 
     if (background == 1){
         printf("[1] : %d \n", pid);
     }else{
         waitpid(pid,NULL,0);
+    }
+
+}
+
+void run_command(int background, char *args[], char *envPath){
+
+    if(strcmp(args[0], "exit") == 0){
+        exit(0);
+    } else if(strcmp(args[0], "fg") == 0){
+        printf("faggot\n");
+    } else if(strcmp(args[0], "clr") == 0){
+        system("clear");
+    }else if(strcmp(args[0], "alias") == 0){
+        printf("alias\n");
+    }else if(strcmp(args[0], "unalias") == 0){
+        printf("unalies\n");
+    }else{
+        execute(background, args, envPath);
     }
 }
 
