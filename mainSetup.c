@@ -28,6 +28,8 @@ void setup(char inputBuffer[], char *args[],int *background);
 void alias(char *args[]);
 void unalias(char *args[]);
 int search_run_alias(int background, char *args[]);
+void alias_list();
+void fg();
 void removeChar(char *str, char garbage);
 
 child * child_head = NULL;
@@ -63,12 +65,13 @@ int main(int argc, char *argv[])
 
 void execute(int background, char *args[], char *envPath){
 
-    int flag = search_run_alias(background, args);
+    if(search_run_alias(background, args) == 0)
+        return;
 
     pid_t pid = fork();
 
     if (pid<0)
-        fprintf(stderr, "Error while creating child process!\n");
+        fprintf(stderr, "Fork failed!\n");
 
 
     if (pid == 0){
@@ -85,6 +88,8 @@ void execute(int background, char *args[], char *envPath){
             strcat(temp, "/");
             strcat(temp, args[0]);
         }
+        fprintf(stdout, "Command %s not found\n", args[0]);
+        exit(0);
     }
 
     if (background != 0){
@@ -108,42 +113,52 @@ void execute(int background, char *args[], char *envPath){
 
 void run_command(int background, char *args[], char *envPath){
 
-    pid_t pid;
     if (strcmp(args[0], "exit") == 0){
+        printf("Bye!");
         exit(0);
     } else if (strcmp(args[0], "fg") == 0){
-        if(child_head != NULL){
-            pid = child_head->pid;
-
-            if(!tcsetpgrp(getpid(), getpgid(pid))){
-                fprintf(stdout, "Error!");
-            }else{
-                waitpid(pid, NULL, 0);
-            }
-            child * temp = child_head;
-            child_head = child_head->next;
-            //free(temp);
-        } else{
-            fprintf(stderr, "There is no background process!\n");
-        }
-
-
+        fg();
+        return;
     } else if (strcmp(args[0], "clr") == 0){
         system("clear");
     } else if (strcmp(args[0], "alias") == 0){
         alias(args);
-
+        return;
     } else if (strcmp(args[0], "unalias") == 0){
         unalias(args);
+        return;
     }else{
         execute(background, args, envPath);
+        return;
     }
 }
 
+void fg(){
+    if(child_head != NULL){
+        pid_t pid = child_head->pid;
+
+        if(!tcsetpgrp(getpid(), getpgid(pid))){
+            fprintf(stdout, "Error!");
+        }else{
+            waitpid(pid, NULL, 0);
+        }
+        child * temp = child_head;
+        child_head = child_head->next;
+        //free(temp);
+    } else{
+        fprintf(stderr, "There is no background process!\n");
+        return;
+    }
+}
 void alias(char *args[]){
     int i= 0;
     char command[80] = "";
     int flag = 0;
+
+    if(strcmp(args[1], "-l") == 0){
+        alias_list();
+        return;
+    }
 
     while(args[i]!= NULL)
     {
@@ -172,7 +187,7 @@ void alias(char *args[]){
     }
 
     if(args[i+1] == NULL){
-        fprintf(stdout, "Key word missing!\n");
+        fprintf(stdout, "Key word is missing!\n");
         return;
     }
 
@@ -181,6 +196,7 @@ void alias(char *args[]){
         strcpy(alias_head->command, command);
         strcpy(alias_head->alias, args[i+1]);
         alias_head->next = NULL;
+        printf("alias added: %s, %s\n", alias_head->alias, alias_head->command);
     }else{
         alias_node *new_child;
         new_child = (alias_node*)malloc(sizeof(struct alias_node));
@@ -188,13 +204,8 @@ void alias(char *args[]){
         strcpy(new_child->alias, args[i+1]);
         new_child->next = alias_head;
         alias_head = new_child;
+        printf("alias added: %s, %s\n", alias_head->alias, alias_head->command);
     }
-
-    /*alias_node * key_word;
-    key_word = (alias_node*)malloc(sizeof(struct alias_node));
-    strcpy(key_word->str, args[i+1]);
-    key_word->next = alias_head;
-    alias_head = key_word;*/
 }
 
 void unalias(char *args[]){
@@ -205,10 +216,12 @@ void unalias(char *args[]){
             alias_node * temp = ptr->next;
             ptr->next = ptr->next->next;
             free(temp);
+            printf("alias %s is removed.\n", args[1]);
             break;
         }else if (ptr->next == NULL && strcmp(args[1],ptr->alias) == 0){
             free(ptr);
             alias_head = NULL;
+            printf("alias %s is removed.\n", args[1]);
             break;
         }
         ptr = ptr->next;
@@ -219,19 +232,49 @@ void unalias(char *args[]){
 int search_run_alias(int background, char *args[]){
 
     alias_node * ptr = alias_head;
-    if(alias_head == NULL){
-        printf("alias not found!\n");
-        return 1;
-    }
+
     while(ptr != NULL){
         if(strcmp(args[0],ptr->alias) == 0){
-            system(ptr->command);
-            return 0;
+            pid_t pid = fork();
+
+            if(pid<0){
+                fprintf(stdout,"Fork failed!\n");
+            } else if(pid == 0){
+                system(ptr->command); /*run command in the child*/
+                exit(0);
+            }
+
+            if(background == 0){
+                waitpid(pid, NULL, 0); /*run in foreground if background == 0*/
+                return 0;
+            }else{
+                if(child_head == NULL){
+                    child_head = (child*)malloc(sizeof(child));
+                    child_head->pid = pid;
+                    child_head->next = NULL;
+                }else{
+                    child *new_child;
+                    new_child = (child*)malloc(sizeof(child));
+                    new_child->pid = pid;
+                    new_child->next = child_head;
+                    child_head = new_child;
+                }
+                printf("[%d] : %d \n", background, pid);
+                return 0;
+            }
         }
         ptr = ptr->next;
     }
-    printf("alias not found!\n");
     return 1;
+}
+
+void alias_list(){
+    alias_node * ptr = alias_head;
+
+    while (ptr != NULL){
+        printf("%s --> %s\n", ptr->alias, ptr->command);
+        ptr = ptr->next;
+    }
 }
 
 /* The setup function below will not return any value, but it will just: read
