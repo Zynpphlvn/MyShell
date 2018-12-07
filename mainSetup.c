@@ -9,89 +9,25 @@
 
 #define MAX_LINE 80 /* 80 chars per line, per command, should be enough. */
 
-/* The setup function below will not return any value, but it will just: read
-in the next command line; separate it into distinct arguments (using blanks as
-delimiters), and set the args array entries to point to the beginning of what
-will become null-terminated, C-style strings. */
+typedef struct child{
+    pid_t pid;
+    struct child *next;
+}child;
 
 void run_command(int background, char *args[], char *envPath);
 void execute(int background, char *args[], char *envPath);
+void setup(char inputBuffer[], char *args[],int *background);
+void alies(char *args[]);
 
-void setup(char inputBuffer[], char *args[],int *background)
-{
-    int length, /* # of characters in the command line */
-        i,      /* loop index for accessing inputBuffer array */
-        start,  /* index where beginning of next command parameter is */
-        ct;     /* index of where to place the next parameter into args[] */
-    
-    ct = 0;
-        
-    /* read what the user enters on the command line */
-    length = read(STDIN_FILENO,inputBuffer,MAX_LINE);
+child * child_head = NULL;
 
-    /* 0 is the system predefined file descriptor for stdin (standard input),
-       which is the user's screen in this case. inputBuffer by itself is the
-       same as &inputBuffer[0], i.e. the starting address of where to store
-       the command that is read, and length holds the number of characters
-       read in. inputBuffer is not a null terminated C-string. */
-
-    start = -1;
-    if (length == 0)
-        exit(0);            /* ^d was entered, end of user command stream */
-
-/* the signal interrupted the read system call */
-/* if the process is in the read() system call, read returns -1
-  However, if this occurs, errno is set to EINTR. We can check this  value
-  and disregard the -1 value */
-    if ( (length < 0) && (errno != EINTR) ) {
-        perror("error reading the command");
-	exit(-1);           /* terminate with error code of -1 */
-    }
-
-	//printf(">>%s<<",inputBuffer);
-    for (i=0;i<length;i++){ /* examine every character in the inputBuffer */
-
-        switch (inputBuffer[i]){
-	    case ' ':
-	    case '\t' :               /* argument separators */
-		if(start != -1){
-                    args[ct] = &inputBuffer[start];    /* set up pointer */
-		    ct++;
-		}
-                inputBuffer[i] = '\0'; /* add a null char; make a C string */
-		start = -1;
-		break;
-
-            case '\n':                 /* should be the final char examined */
-		if (start != -1){
-                    args[ct] = &inputBuffer[start];     
-		    ct++;
-		}
-                inputBuffer[i] = '\0';
-                args[ct] = NULL; /* no more arguments to this command */
-		break;
-
-	    default :             /* some other character */
-		if (start == -1)
-		    start = i;
-                if (inputBuffer[i] == '&'){
-		    *background  = 1;
-                    inputBuffer[i-1] = '\0';
-		}
-	} /* end of switch */
-     }    /* end of for */
-     args[ct] = NULL; /* just in case the input line was > 80 */
-
-//	for (i = 0; i <= ct; i++)
-//		printf("args %d = %s\n",i,args[i]);
-} /* end of setup routine */
- 
-int main(int argc, char *agrv[])
+int main(int argc, char *argv[])
 {
     char *envPath = getenv("PATH");
     char inputBuffer[MAX_LINE]; /*buffer to hold command entered */
     int background; /* equals 1 if a command is followed by '&' */
     char *args[MAX_LINE/2 + 1]; /*command line arguments */
+
     while (1){
         background = 0;
         printf("myshell: ");
@@ -116,11 +52,11 @@ int main(int argc, char *agrv[])
 void execute(int background, char *args[], char *envPath){
     pid_t pid = fork();
 
-    if(pid<0) {
-        fprintf(stderr, "Error while creating child process!");
+    if (pid<0) {
+        fprintf(stderr, "Error while creating child process!\n");
     }
 
-    if(pid == 0){
+    if (pid == 0){
 
         char *token = strtok(envPath, ":");
         char temp[80] = "";
@@ -136,8 +72,19 @@ void execute(int background, char *args[], char *envPath){
         }
     }
 
-    if (background == 1){
-        printf("[1] : %d \n", pid);
+    if (background > 0){
+        if(child_head == NULL){
+            child_head = (child*)malloc(sizeof(child));
+            child_head->pid = pid;
+            child_head->next = NULL;
+        }else{
+            child *new_child;
+            new_child = (child*)malloc(sizeof(child));
+            new_child->pid = pid;
+            new_child->next = child_head;
+            child_head = new_child;
+        }
+        printf("[%d] : %d \n", background, pid);
     }else{
         waitpid(pid,NULL,0);
     }
@@ -146,18 +93,115 @@ void execute(int background, char *args[], char *envPath){
 
 void run_command(int background, char *args[], char *envPath){
 
-    if(strcmp(args[0], "exit") == 0){
+    pid_t pid;
+    if (strcmp(args[0], "exit") == 0){
         exit(0);
-    } else if(strcmp(args[0], "fg") == 0){
-        printf("faggot\n");
-    } else if(strcmp(args[0], "clr") == 0){
+    } else if (strcmp(args[0], "fg") == 0){
+        if(child_head != NULL){
+            pid = child_head->pid;
+
+            //signal(SIGTTOU, SIG_IGN);
+            if(!tcsetpgrp(getpid(), getpgid(pid))){
+                fprintf(stdout, "Error!");
+            }else{
+                //kill(pid, SIGCONT);
+                waitpid(pid, NULL, 0);
+            }
+            child * temp = child_head;
+            child_head = child_head->next;
+            //free(temp);
+        } else{
+            fprintf(stderr, "There is no background process!\n");
+        }
+
+
+    } else if (strcmp(args[0], "clr") == 0){
         system("clear");
-    }else if(strcmp(args[0], "alias") == 0){
+    } else if (strcmp(args[0], "alias") == 0){
         printf("alias\n");
-    }else if(strcmp(args[0], "unalias") == 0){
+    } else if (strcmp(args[0], "unalias") == 0){
         printf("unalies\n");
     }else{
         execute(background, args, envPath);
     }
 }
 
+void alies(char *args[]){
+
+}
+
+/* The setup function below will not return any value, but it will just: read
+in the next command line; separate it into distinct arguments (using blanks as
+delimiters), and set the args array entries to point to the beginning of what
+will become null-terminated, C-style strings. */
+
+void setup(char inputBuffer[], char *args[],int *background)
+{
+    int length, /* # of characters in the command line */
+            i,      /* loop index for accessing inputBuffer array */
+            start,  /* index where beginning of next command parameter is */
+            ct;     /* index of where to place the next parameter into args[] */
+
+    ct = 0;
+
+    /* read what the user enters on the command line */
+    length = read(STDIN_FILENO,inputBuffer,MAX_LINE);
+
+    /* 0 is the system predefined file descriptor for stdin (standard input),
+       which is the user's screen in this case. inputBuffer by itself is the
+       same as &inputBuffer[0], i.e. the starting address of where to store
+       the command that is read, and length holds the number of characters
+       read in. inputBuffer is not a null terminated C-string. */
+
+    start = -1;
+    if (length == 0)
+        exit(0);            /* ^d was entered, end of user command stream */
+
+/* the signal interrupted the read system call */
+/* if the process is in the read() system call, read returns -1
+  However, if this occurs, errno is set to EINTR. We can check this  value
+  and disregard the -1 value */
+    if ( (length < 0) && (errno != EINTR) ) {
+        perror("error reading the command");
+        exit(-1);           /* terminate with error code of -1 */
+    }
+
+    //printf(">>%s<<",inputBuffer);
+    for (i=0;i<length;i++){ /* examine every character in the inputBuffer */
+
+        switch (inputBuffer[i]){
+            case ' ':
+            case '\t' :               /* argument separators */
+                if(start != -1){
+                    args[ct] = &inputBuffer[start];    /* set up pointer */
+                    ct++;
+                }
+                inputBuffer[i] = '\0'; /* add a null char; make a C string */
+                start = -1;
+                break;
+
+            case '\n':                 /* should be the final char examined */
+                if (start != -1){
+                    args[ct] = &inputBuffer[start];
+                    ct++;
+                }
+                inputBuffer[i] = '\0';
+                args[ct] = NULL; /* no more arguments to this command */
+                break;
+
+            default :             /* some other character */
+                if (start == -1)
+                    start = i;
+                if (inputBuffer[i] == '&'){
+                    *background  = 1;
+                    inputBuffer[i-1] = '\0';
+                    i++;
+                    args[ct] = NULL;
+                }
+        } /* end of switch */
+    }    /* end of for */
+    args[ct] = NULL; /* just in case the input line was > 80 */
+
+//	for (i = 0; i <= ct; i++)
+//		printf("args %d = %s\n",i,args[i]);
+} /* end of setup routine */
