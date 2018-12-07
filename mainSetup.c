@@ -5,6 +5,7 @@
 #include <string.h>
 #include<sys/wait.h>
 #include<sys/types.h>
+#include <jmorecfg.h>
 
 
 #define MAX_LINE 80 /* 80 chars per line, per command, should be enough. */
@@ -14,12 +15,23 @@ typedef struct child{
     struct child *next;
 }child;
 
+typedef struct alias_node{
+    char alias[80];
+    char command[80];
+
+    struct alias_node *next;
+}alias_node;
+
 void run_command(int background, char *args[], char *envPath);
 void execute(int background, char *args[], char *envPath);
 void setup(char inputBuffer[], char *args[],int *background);
-void alies(char *args[]);
+void alias(char *args[]);
+void unalias(char *args[]);
+int search_run_alias(int background, char *args[]);
+void removeChar(char *str, char garbage);
 
 child * child_head = NULL;
+alias_node * alias_head = NULL;
 
 int main(int argc, char *argv[])
 {
@@ -50,11 +62,14 @@ int main(int argc, char *argv[])
 }
 
 void execute(int background, char *args[], char *envPath){
+
+    int flag = search_run_alias(background, args);
+
     pid_t pid = fork();
 
-    if (pid<0) {
+    if (pid<0)
         fprintf(stderr, "Error while creating child process!\n");
-    }
+
 
     if (pid == 0){
 
@@ -72,7 +87,7 @@ void execute(int background, char *args[], char *envPath){
         }
     }
 
-    if (background > 0){
+    if (background != 0){
         if(child_head == NULL){
             child_head = (child*)malloc(sizeof(child));
             child_head->pid = pid;
@@ -100,11 +115,9 @@ void run_command(int background, char *args[], char *envPath){
         if(child_head != NULL){
             pid = child_head->pid;
 
-            //signal(SIGTTOU, SIG_IGN);
             if(!tcsetpgrp(getpid(), getpgid(pid))){
                 fprintf(stdout, "Error!");
             }else{
-                //kill(pid, SIGCONT);
                 waitpid(pid, NULL, 0);
             }
             child * temp = child_head;
@@ -118,16 +131,107 @@ void run_command(int background, char *args[], char *envPath){
     } else if (strcmp(args[0], "clr") == 0){
         system("clear");
     } else if (strcmp(args[0], "alias") == 0){
-        printf("alias\n");
+        alias(args);
+
     } else if (strcmp(args[0], "unalias") == 0){
-        printf("unalies\n");
+        unalias(args);
     }else{
         execute(background, args, envPath);
     }
 }
 
-void alies(char *args[]){
+void alias(char *args[]){
+    int i= 0;
+    char command[80] = "";
+    int flag = 0;
 
+    while(args[i]!= NULL)
+    {
+        if(args[i][0] == '\"')
+        {
+            if(args[i][strlen(args[i])-1] == '\"'){
+                flag = 1;
+            }
+            removeChar(args[i],'\"');
+            strcat(command,args[i]);
+            break;
+        }
+        i++;
+    }
+
+    strcat(command," ");
+    while(args[i]!= NULL && flag == 0)
+    {
+        if(args[i][strlen(args[i])-1] == '\"')
+        {
+            removeChar(args[i],'\"');
+            strcat(command,args[i]);
+            break;
+        }
+        i++;
+    }
+
+    if(args[i+1] == NULL){
+        fprintf(stdout, "Key word missing!\n");
+        return;
+    }
+
+    if(alias_head == NULL){
+        alias_head= (alias_node*)malloc(sizeof(struct alias_node));
+        strcpy(alias_head->command, command);
+        strcpy(alias_head->alias, args[i+1]);
+        alias_head->next = NULL;
+    }else{
+        alias_node *new_child;
+        new_child = (alias_node*)malloc(sizeof(struct alias_node));
+        strcpy(new_child->command, command);
+        strcpy(new_child->alias, args[i+1]);
+        new_child->next = alias_head;
+        alias_head = new_child;
+    }
+
+    /*alias_node * key_word;
+    key_word = (alias_node*)malloc(sizeof(struct alias_node));
+    strcpy(key_word->str, args[i+1]);
+    key_word->next = alias_head;
+    alias_head = key_word;*/
+}
+
+void unalias(char *args[]){
+    alias_node * ptr = alias_head;
+
+    while(ptr != NULL){
+        if(ptr->next != NULL && (strcmp(args[1],ptr->next->alias) == 0)){
+            alias_node * temp = ptr->next;
+            ptr->next = ptr->next->next;
+            free(temp);
+            break;
+        }else if (ptr->next == NULL && strcmp(args[1],ptr->alias) == 0){
+            free(ptr);
+            alias_head = NULL;
+            break;
+        }
+        ptr = ptr->next;
+    }
+
+}
+
+int search_run_alias(int background, char *args[]){
+
+    alias_node * ptr = alias_head;
+    if(alias_head == NULL){
+        printf("alias not found!\n");
+        return 1;
+    }
+    while(ptr != NULL){
+        if(strcmp(args[0],ptr->alias) == 0){
+            system(ptr->command);
+            return 0;
+        }
+        ptr = ptr->next;
+    }
+    printf("alias not found!\n");
+    return 1;
 }
 
 /* The setup function below will not return any value, but it will just: read
@@ -205,3 +309,13 @@ void setup(char inputBuffer[], char *args[],int *background)
 //	for (i = 0; i <= ct; i++)
 //		printf("args %d = %s\n",i,args[i]);
 } /* end of setup routine */
+
+void removeChar(char *str, char garbage) {
+
+    char *src, *dst;
+    for (src = dst = str; *src != '\0'; src++) {
+        *dst = *src;
+        if (*dst != garbage) dst++;
+    }
+    *dst = '\0';
+}
