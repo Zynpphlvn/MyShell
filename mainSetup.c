@@ -5,7 +5,8 @@
 #include <string.h>
 #include<sys/wait.h>
 #include<sys/types.h>
-#include <jmorecfg.h>
+#include<fcntl.h>
+//#include <jmorecfg.h>
 
 
 #define MAX_LINE 80 /* 80 chars per line, per command, should be enough. */
@@ -30,7 +31,9 @@ void unalias(char *args[]);
 int search_run_alias(int background, char *args[]);
 void alias_list();
 void fg();
+int redirect(char *args[], int background, char *envPath);
 void removeChar(char *str, char garbage);
+void clone_args(char *args[], char *args_clone[], int start, int end, int ptr);
 
 child * child_head = NULL;
 alias_node * alias_head = NULL;
@@ -65,7 +68,7 @@ int main(int argc, char *argv[])
 
 void execute(int background, char *args[], char *envPath){
 
-    if(search_run_alias(background, args) == 0)
+    if(search_run_alias(background, args))
         return;
 
     pid_t pid = fork();
@@ -88,6 +91,7 @@ void execute(int background, char *args[], char *envPath){
             strcat(temp, "/");
             strcat(temp, args[0]);
         }
+        printf("asfgasdfasdf\n");
         fprintf(stdout, "Command %s not found\n", args[0]);
         exit(0);
     }
@@ -113,17 +117,19 @@ void execute(int background, char *args[], char *envPath){
 
 void run_command(int background, char *args[], char *envPath){
 
-    if (strcmp(args[0], "exit") == 0){
+    if (strcmp(args[0], "alias") == 0){
+        alias(args);
+        return;
+    }else if (strcmp(args[0], "exit") == 0){
         printf("Bye!");
         exit(0);
+    } else if (redirect(args, background, envPath)){
+        return;
     } else if (strcmp(args[0], "fg") == 0){
         fg();
         return;
     } else if (strcmp(args[0], "clr") == 0){
         system("clear");
-    } else if (strcmp(args[0], "alias") == 0){
-        alias(args);
-        return;
     } else if (strcmp(args[0], "unalias") == 0){
         unalias(args);
         return;
@@ -140,6 +146,7 @@ void fg(){
         if(!tcsetpgrp(getpid(), getpgid(pid))){
             fprintf(stdout, "Error!");
         }else{
+            printf("kill returned: %d\n", kill(pid, 0));
             waitpid(pid, NULL, 0);
         }
         child * temp = child_head;
@@ -174,15 +181,19 @@ void alias(char *args[]){
         i++;
     }
 
-    strcat(command," ");
+    i++;
+
     while(args[i]!= NULL && flag == 0)
     {
         if(args[i][strlen(args[i])-1] == '\"')
         {
+            strcat(command," ");
             removeChar(args[i],'\"');
             strcat(command,args[i]);
             break;
         }
+        strcat(command," ");
+        strcat(command,args[i]);
         i++;
     }
 
@@ -246,7 +257,7 @@ int search_run_alias(int background, char *args[]){
 
             if(background == 0){
                 waitpid(pid, NULL, 0); /*run in foreground if background == 0*/
-                return 0;
+                return 1;
             }else{
                 if(child_head == NULL){
                     child_head = (child*)malloc(sizeof(child));
@@ -260,20 +271,143 @@ int search_run_alias(int background, char *args[]){
                     child_head = new_child;
                 }
                 printf("[%d] : %d \n", background, pid);
-                return 0;
+                return 1;
             }
         }
         ptr = ptr->next;
     }
-    return 1;
+    return 0;
 }
 
 void alias_list(){
     alias_node * ptr = alias_head;
 
+    if (ptr == NULL){
+        printf("There is nothing to list.\n");
+    }
     while (ptr != NULL){
         printf("%s --> %s\n", ptr->alias, ptr->command);
         ptr = ptr->next;
+    }
+}
+
+int redirect(char *args[], int background, char *envPath) {
+
+
+    /*find any redirect arg if exists*/
+    char *args_clones[MAX_LINE / 2 + 1];
+    int i = 0, ptr1 = 0, ptr2 = 0, flag=0;
+
+    while (args[i] != NULL) {
+        if (strcmp("<", args[i]) == 0 || strcmp(">>", args[i]) == 0 ||
+            strcmp("2>", args[i]) == 0 || strcmp(">", args[i]) == 0) { /*check if there is any redirection command*/
+            flag = 1;
+            break;
+        }
+        i++;
+    }
+
+    if (args[i] == NULL){ /*return 0 if there is no redirection command*/
+        return 0;
+    }
+
+    if(args[i+1] == NULL){
+        fprintf(stdout,"Missing agrument.\n");
+    }
+    pid_t pid = fork();
+
+    if (pid < 0)
+        fprintf(stderr, "Fork failed!\n");
+
+    if (pid == 0) {
+        if(strcmp(">", args[i]) == 0){
+            int fd;
+            args[i]=NULL;
+            fd = open(args[i+1], O_WRONLY | O_TRUNC | O_CREAT, 0644);
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+        }else if(strcmp(">>", args[i]) == 0){
+            int fd;
+            args[i]=NULL;
+            fd = open(args[i+1], O_WRONLY | O_APPEND | O_CREAT, 0644);
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+        }else if(strcmp("2>", args[i]) == 0){
+            int fd;
+            fd = open(args[i+1], O_WRONLY | O_APPEND | O_CREAT, 0644);
+            dup2(fd, STDERR_FILENO);
+            close(fd);
+        }else if(strcmp("<", args[i]) == 0){
+            if(args[i+2]!= NULL || strcmp(">", args[i+2]) == 0){
+                fflush(stdout);
+                if(args[i+3] == NULL){
+                    fprintf(stdout, "Missing argument!\n");
+                    return 0;
+                }
+                int fd, fd2;
+                fd = open(args[i+1], O_RDONLY, 0644);
+                fd2 = open(args[i+3],O_WRONLY | O_TRUNC | O_CREAT, 0644);
+                dup2(fd2, STDOUT_FILENO);
+                dup2(fd, STDIN_FILENO);
+                close(fd2);
+                args[i]=NULL;
+            }else{
+                int fd;
+                fd = open(args[i+1], O_RDONLY, 0644);
+                args[i]=NULL;
+                dup2(fd, STDIN_FILENO);
+            }
+        }
+
+        if(search_run_alias(background, args))
+            return 1;
+
+
+        char *token = strtok(envPath, ":");
+        char temp[80] = "";
+        strcpy(temp, token);
+        strcat(temp, "/");
+        strcat(temp, args[0]);
+        while (execl(temp, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9],
+                     args[10], args[11], args[12], NULL) != 0) {
+
+            token = strtok(NULL, ":");
+            strcpy(temp, token);
+            strcat(temp, "/");
+            strcat(temp, args[0]);
+        }
+        fprintf(stdout, "Command %s not found\n", args[0]);
+        exit(0);
+    }
+
+    if (background != 0) {
+        if (child_head == NULL) {
+            child_head = (child *) malloc(sizeof(child));
+            child_head->pid = pid;
+            child_head->next = NULL;
+        } else {
+            child *new_child;
+            new_child = (child *) malloc(sizeof(child));
+            new_child->pid = pid;
+            new_child->next = child_head;
+            child_head = new_child;
+        }
+        printf("[%d] : %d \n", background, pid);
+
+    } else {
+        printf("waiting for child\n");
+        waitpid(pid, NULL, 0);
+    }
+
+}
+
+void clone_args(char *args[], char *args_clones[], int start, int end, int ptr){
+
+    for(int i=start; i<end; i++){
+        args_clones[ptr] = (char*)malloc(strlen(args[i])+1);
+        memcpy(args_clones[ptr], args[i], strlen(args[i]));
+        //strcpy(args_clone[ptr], args[i]);
+        printf("cloned arg:%s\n", args_clones[ptr]);
     }
 }
 
