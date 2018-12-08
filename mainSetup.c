@@ -35,8 +35,19 @@ int redirect(char *args[], int background, char *envPath);
 void removeChar(char *str, char garbage);
 void clone_args(char *args[], char *args_clone[], int start, int end, int ptr);
 
+pid_t fg_pid;
 child * child_head = NULL;
 alias_node * alias_head = NULL;
+
+static void signal_handler(int signo){
+    if(fg_pid!=0){
+        kill(fg_pid, SIGKILL);
+    }else{
+        printf("There is nothing to kill.");
+    }
+    fflush(stdout);
+    printf("\nmyshell: ");
+}
 
 int main(int argc, char *argv[])
 {
@@ -44,6 +55,15 @@ int main(int argc, char *argv[])
     char inputBuffer[MAX_LINE]; /*buffer to hold command entered */
     int background; /* equals 1 if a command is followed by '&' */
     char *args[MAX_LINE/2 + 1]; /*command line arguments */
+
+    struct sigaction act;
+    act.sa_handler = signal_handler;            /* set up signal handler */
+    act.sa_flags = SA_RESTART;
+    if ((sigemptyset(&act.sa_mask) == -1) ||
+        (sigaction(SIGTSTP, &act, NULL) == -1)) {
+        fprintf(stdout,"Failed to set SIGTSTP handler!\n");
+        return 1;
+    }
 
     while (1){
         background = 0;
@@ -110,7 +130,9 @@ void execute(int background, char *args[], char *envPath){
         }
         printf("[%d] : %d \n", background, pid);
     }else{
+        fg_pid = pid;
         waitpid(pid,NULL,0);
+        fg_pid = 0;
     }
 
 }
@@ -146,8 +168,9 @@ void fg(){
         if(!tcsetpgrp(getpid(), getpgid(pid))){
             fprintf(stdout, "Error!");
         }else{
-            printf("kill returned: %d\n", kill(pid, 0));
-            waitpid(pid, NULL, 0);
+            fg_pid = pid;
+            waitpid(pid,NULL,0);
+            fg_pid = 0;
         }
         child * temp = child_head;
         child_head = child_head->next;
@@ -256,7 +279,9 @@ int search_run_alias(int background, char *args[]){
             }
 
             if(background == 0){
+                fg_pid = pid;
                 waitpid(pid, NULL, 0); /*run in foreground if background == 0*/
+                fg_pid = 0;
                 return 1;
             }else{
                 if(child_head == NULL){
@@ -291,7 +316,7 @@ void alias_list(){
     }
 }
 
-int redirect(char *args[], int background, char *envPath) {
+int redirect(char *args[], int background, char *envPath) { /*checks for any redirection command and execuate if exists*/
 
 
     /*find any redirect arg if exists*/
@@ -326,19 +351,22 @@ int redirect(char *args[], int background, char *envPath) {
             fd = open(args[i+1], O_WRONLY | O_TRUNC | O_CREAT, 0644);
             dup2(fd, STDOUT_FILENO);
             close(fd);
+
         }else if(strcmp(">>", args[i]) == 0){
             int fd;
             args[i]=NULL;
             fd = open(args[i+1], O_WRONLY | O_APPEND | O_CREAT, 0644);
             dup2(fd, STDOUT_FILENO);
             close(fd);
+
         }else if(strcmp("2>", args[i]) == 0){
             int fd;
             fd = open(args[i+1], O_WRONLY | O_APPEND | O_CREAT, 0644);
             dup2(fd, STDERR_FILENO);
             close(fd);
+
         }else if(strcmp("<", args[i]) == 0){
-            if(args[i+2]!= NULL || strcmp(">", args[i+2]) == 0){
+            if(args[i+2]!= NULL && strcmp(">", args[i+2]) == 0){
                 fflush(stdout);
                 if(args[i+3] == NULL){
                     fprintf(stdout, "Missing argument!\n");
@@ -353,9 +381,10 @@ int redirect(char *args[], int background, char *envPath) {
                 args[i]=NULL;
             }else{
                 int fd;
-                fd = open(args[i+1], O_RDONLY, 0644);
                 args[i]=NULL;
+                fd = open(args[i+1], O_RDONLY, 0644);
                 dup2(fd, STDIN_FILENO);
+                close(fd);
             }
         }
 
@@ -395,8 +424,9 @@ int redirect(char *args[], int background, char *envPath) {
         printf("[%d] : %d \n", background, pid);
 
     } else {
-        printf("waiting for child\n");
-        waitpid(pid, NULL, 0);
+        fg_pid = pid;
+        waitpid(pid,NULL,0);
+        fg_pid = 0;
     }
 
 }
@@ -406,7 +436,6 @@ void clone_args(char *args[], char *args_clones[], int start, int end, int ptr){
     for(int i=start; i<end; i++){
         args_clones[ptr] = (char*)malloc(strlen(args[i])+1);
         memcpy(args_clones[ptr], args[i], strlen(args[i]));
-        //strcpy(args_clone[ptr], args[i]);
         printf("cloned arg:%s\n", args_clones[ptr]);
     }
 }
